@@ -1,0 +1,397 @@
+-- Skywhycheat v5.2: SKELETON ESP, RGB THEME, MOTION BLUR PARTICLES, GLOWING STROKE, GRADIENTS
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- Очистка старого ESP
+if getgenv().SkyWhyCheat_Connections then
+    for _, v in pairs(getgenv().SkyWhyCheat_Connections) do v:Disconnect() end
+end
+getgenv().SkyWhyCheat_Connections = {}
+
+-- Глобальные настройки
+getgenv().Aimbot_Enabled = false
+getgenv().ESP_Enabled = false
+getgenv().TriggerBot_Enabled = false
+getgenv().Noclip_Enabled = false
+getgenv().InfJump_Enabled = false
+getgenv().HBE_Enabled = false
+getgenv().HBE_Size = 2
+getgenv().ClickTP_Enabled = false
+getgenv().Speed_Enabled = false
+getgenv().WalkSpeed_Value = 16
+getgenv().Animate_Enabled = false
+getgenv().Headless_Enabled = false
+
+local AimSettings = { FOV = 250, Key = Enum.KeyCode.Eight }
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1.5; FOVCircle.Color = Color3.new(1, 1, 1); FOVCircle.Visible = false; FOVCircle.Transparency = 1; FOVCircle.Radius = AimSettings.FOV
+
+-- Цвета
+local UI_Background = Color3.fromRGB(10, 10, 15)
+local UI_Accent = Color3.fromRGB(80, 100, 200) 
+local UI_Inner = Color3.fromRGB(2, 2, 5)
+
+-- Хранилище объектов для смены цвета
+local ColorThemeObjects = { Texts = {}, Backgrounds = {}, Buttons = {}, Gradients = {} }
+
+-- === 1. ИНТЕРФЕЙС И LAYOUT ===
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SkyWhyCheat_GUI"
+for _, v in pairs(game:GetService("CoreGui"):GetChildren()) do if v.Name == "SkyWhyCheat_GUI" then v:Destroy() end end
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local Aura = Instance.new("Frame", ScreenGui)
+Aura.BackgroundColor3 = UI_Background; Aura.Position = UDim2.new(0.5, -110, 0.5, -240); Aura.Size = UDim2.new(0, 220, 0, 800)
+Instance.new("UICorner", Aura).CornerRadius = UDim.new(0, 10)
+
+-- Сияющая обводка (Glow Stroke)
+local GlowStroke = Instance.new("UIStroke", Aura)
+GlowStroke.Thickness = 2.5
+GlowStroke.Color = UI_Accent
+GlowStroke.Transparency = 0.2
+GlowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+-- Анимация мерцания обводки
+table.insert(getgenv().SkyWhyCheat_Connections, RunService.RenderStepped:Connect(function()
+    GlowStroke.Transparency = 0.2 + math.abs(math.sin(tick() * 1.5)) * 0.5
+end))
+
+local Main = Instance.new("Frame", Aura)
+Main.BackgroundColor3 = UI_Inner; Main.Position = UDim2.new(0, 3, 0, 3); Main.Size = UDim2.new(1, -6, 1, -6)
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 8); Main.ClipsDescendants = true
+
+-- === ГЕНЕРАЦИЯ ПАДАЮЩИХ ТОЧЕК (MOTION BLUR) ===
+local StarContainer = Instance.new("Frame", Main)
+StarContainer.Size = UDim2.new(1, 0, 1, 0)
+StarContainer.BackgroundTransparency = 1
+StarContainer.ZIndex = 0
+
+local function CreateFallingPoint()
+    local point = Instance.new("Frame", StarContainer)
+    point.Name = "Particle"
+    point.BackgroundColor3 = Color3.new(1, 1, 1)
+    point.BorderSizePixel = 0
+    
+    local width = math.random(1, 2)
+    local length = math.random(8, 20) -- Вытягиваем точку в длину
+    point.Size = UDim2.new(0, width, 0, length)
+    point.Position = UDim2.new(math.random(), 0, -0.05, 0)
+    point.BackgroundTransparency = math.random(0.3, 0.7)
+    
+    -- Градиент для эффекта Motion Blur (сверху прозрачно, снизу плотно)
+    local blurGradient = Instance.new("UIGradient", point)
+    blurGradient.Rotation = 90
+    blurGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),   -- Хвост (полностью прозрачный)
+        NumberSequenceKeypoint.new(0.6, 0.5),
+        NumberSequenceKeypoint.new(1, 0)    -- Голова точки
+    })
+    
+    -- Скорость (Сделал медленнее: от 1.5 до 3 секунд)
+    local speed = math.random(15, 30) / 10 
+    local goal = UDim2.new(point.Position.X.Scale, 0, 1.05, 0)
+    
+    local tween = TweenService:Create(point, TweenInfo.new(speed, Enum.EasingStyle.Linear), {Position = goal})
+    tween:Play()
+    tween.Completed:Connect(function() point:Destroy() end)
+end
+
+task.spawn(function()
+    while task.wait(0.1) do -- Чуть реже спавним, так как они медленнее летят
+        if ScreenGui and ScreenGui.Parent then CreateFallingPoint() else break end
+    end
+end)
+
+local Title = Instance.new("TextLabel", Main)
+Title.Text = "SKYWHYCHEAT"; Title.TextColor3 = Color3.new(1, 1, 1); Title.Font = Enum.Font.GothamBlack; Title.TextSize = 18; Title.BackgroundTransparency = 1; Title.ZIndex = 2
+
+local UI_Elements = {}
+
+local function RegisterElement(obj, height)
+    table.insert(UI_Elements, {obj = obj, height = height})
+end
+
+-- Обновленная функция создания заголовков (С ГРАДИЕНТОМ)
+local function CreateLabel(text)
+    local lbl = Instance.new("TextLabel", Main); lbl.Text = text; lbl.TextColor3 = Color3.new(1,1,1); lbl.BackgroundTransparency = 1; lbl.Font = Enum.Font.GothamBlack; lbl.TextSize = 12; lbl.ZIndex = 2
+    
+    local grad = Instance.new("UIGradient", lbl)
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, UI_Accent),
+        ColorSequenceKeypoint.new(1, Color3.new(1, 1, 1)) -- Градиент от RGB цвета к белому
+    })
+    
+    table.insert(ColorThemeObjects.Gradients, grad)
+    RegisterElement(lbl, 25)
+    return lbl
+end
+
+local function CreateButton(text, toggleVar, callback)
+    local btn = Instance.new("TextButton", Main)
+    btn.BackgroundColor3 = Color3.new(1, 1, 1); btn.BackgroundTransparency = 0.93; btn.Text = text .. ": OFF"; btn.TextColor3 = Color3.new(1, 1, 1); btn.Font = Enum.Font.GothamSemibold; btn.TextSize = 11; btn.ZIndex = 2
+    Instance.new("UICorner", btn)
+    table.insert(ColorThemeObjects.Buttons, {btn = btn, var = toggleVar, baseText = text})
+    
+    btn.MouseButton1Click:Connect(function()
+        if toggleVar then getgenv()[toggleVar] = not getgenv()[toggleVar] end
+        btn.Text = text .. (toggleVar and (": " .. (getgenv()[toggleVar] and "ON" or "OFF")) or "")
+        btn.TextColor3 = (toggleVar and getgenv()[toggleVar]) and UI_Accent or Color3.new(1, 1, 1)
+        if toggleVar == "Aimbot_Enabled" then FOVCircle.Visible = getgenv().Aimbot_Enabled end
+        if callback then callback(toggleVar and getgenv()[toggleVar] or nil) end
+    end)
+    RegisterElement(btn, 30)
+    return btn
+end
+
+local function CreateSlider(name, min, max, default, callback)
+    local container = Instance.new("Frame", Main)
+    container.BackgroundTransparency = 1
+    container.ZIndex = 2
+    local lbl = Instance.new("TextLabel", container); lbl.Size = UDim2.new(0.5, 0, 0, 15); lbl.Text = name .. ": " .. default; lbl.TextColor3 = Color3.new(1,1,1); lbl.BackgroundTransparency = 1; lbl.Font = Enum.Font.Gotham; lbl.TextSize = 10; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.ZIndex = 2
+    local bg = Instance.new("TextButton", container); bg.Size = UDim2.new(1, 0, 0, 10); bg.Position = UDim2.new(0, 0, 0, 15); bg.BackgroundColor3 = Color3.fromRGB(40,40,40); bg.Text = ""; bg.ZIndex = 2; Instance.new("UICorner", bg)
+    local fill = Instance.new("Frame", bg); fill.Size = UDim2.new((default-min)/(max-min), 0, 1, 0); fill.BackgroundColor3 = UI_Accent; fill.ZIndex = 2; Instance.new("UICorner", fill)
+    table.insert(ColorThemeObjects.Backgrounds, fill)
+    
+    bg.MouseButton1Down:Connect(function()
+        local move; move = UserInputService.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement then
+                local relX = math.clamp((input.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+                local val = math.round(min + (max - min) * relX)
+                lbl.Text = name .. ": " .. val
+                fill.Size = UDim2.new(relX, 0, 1, 0)
+                callback(val)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
+    end)
+    RegisterElement(container, 30)
+end
+
+-- === ДОБАВЛЕНИЕ ЭЛЕМЕНТОВ ===
+RegisterElement(Title, 35)
+
+CreateLabel("COMBAT")
+CreateButton("Aimbot (Key 8)", "Aimbot_Enabled")
+CreateButton("Full ESP", "ESP_Enabled")
+CreateButton("Trigger Bot", "TriggerBot_Enabled")
+
+CreateLabel("HITBOX")
+CreateSlider("Size", 2, 100, 2, function(v) getgenv().HBE_Size = v end)
+CreateButton("HBE Status", "HBE_Enabled")
+
+CreateLabel("MOVEMENT")
+CreateSlider("WalkSpeed", 16, 500, 16, function(v) getgenv().WalkSpeed_Value = v end)
+CreateButton("Speed Hack", "Speed_Enabled")
+
+CreateLabel("MISC")
+CreateButton("Click TP (Key T)", "ClickTP_Enabled")
+CreateButton("Noclip", "Noclip_Enabled")
+CreateButton("Infinite Jump", "InfJump_Enabled")
+CreateButton("Elder Animation", "Animate_Enabled", function(state)
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("Animate") then
+        local anim = char.Animate; anim.Disabled = true
+        if state then
+            anim.idle.Animation1.AnimationId = "http://www.roblox.com/asset/?id=845397899"
+            anim.idle.Animation2.AnimationId = "http://www.roblox.com/asset/?id=845400520"
+            anim.walk.WalkAnim.AnimationId = "http://www.roblox.com/asset/?id=845403856"
+            anim.run.RunAnim.AnimationId = "http://www.roblox.com/asset/?id=845386501"
+            anim.jump.JumpAnim.AnimationId = "http://www.roblox.com/asset/?id=845398858"
+        end
+        char.Humanoid:ChangeState(3); anim.Disabled = false
+    end
+end)
+CreateButton("Visual Headless", "Headless_Enabled")
+
+CreateLabel("UI SETTINGS")
+local R, G, B = 80, 100, 200
+local function UpdateColor()
+    UI_Accent = Color3.fromRGB(R, G, B)
+    GlowStroke.Color = UI_Accent 
+    
+    -- Обновляем градиенты заголовков
+    for _, grad in pairs(ColorThemeObjects.Gradients) do 
+        grad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, UI_Accent),
+            ColorSequenceKeypoint.new(1, Color3.new(1, 1, 1))
+        })
+    end
+    
+    for _, bg in pairs(ColorThemeObjects.Backgrounds) do bg.BackgroundColor3 = UI_Accent end
+    for _, b in pairs(ColorThemeObjects.Buttons) do 
+        if b.var and getgenv()[b.var] then b.btn.TextColor3 = UI_Accent end
+    end
+end
+CreateSlider("Red", 0, 255, R, function(v) R = v; UpdateColor() end)
+CreateSlider("Green", 0, 255, G, function(v) G = v; UpdateColor() end)
+CreateSlider("Blue", 0, 255, B, function(v) B = v; UpdateColor() end)
+
+local isHorizontal = false
+CreateButton("Toggle Menu Layout", nil, function()
+    isHorizontal = not isHorizontal
+    UpdateLayout()
+end)
+
+function UpdateLayout()
+    if isHorizontal then
+        Aura.Size = UDim2.new(0, 620, 0, 320)
+        local yPos = 10; local col = 0; local colWidth = 190
+        for i, data in ipairs(UI_Elements) do
+            if yPos + data.height > 300 then col = col + 1; yPos = 10 end
+            data.obj.Position = UDim2.new(0, 15 + (col * colWidth), 0, yPos)
+            data.obj.Size = UDim2.new(0, colWidth - 15, 0, data.height)
+            yPos = yPos + data.height + 5
+        end
+    else
+        Aura.Size = UDim2.new(0, 220, 0, 780)
+        local yPos = 5
+        for i, data in ipairs(UI_Elements) do
+            data.obj.Position = UDim2.new(0, 15, 0, yPos)
+            data.obj.Size = UDim2.new(1, -30, 0, data.height)
+            yPos = yPos + data.height + 5
+        end
+    end
+end
+UpdateLayout()
+
+-- === 2. ФУНКЦИИ ESP СО СКЕЛЕТОМ ===
+local R15_Bones = {{"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"}, {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"}, {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"}, {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"}, {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"}}
+local R6_Bones = {{"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"}, {"Torso", "Left Leg"}, {"Torso", "Right Leg"}}
+
+local function CreateESP(p)
+    local Box = Drawing.new("Square"); Box.Thickness = 1.2; Box.Filled = false; Box.Color = Color3.new(1,1,1); Box.Visible = false
+    local Name = Drawing.new("Text"); Name.Size = 14; Name.Center = true; Name.Outline = true; Name.Color = Color3.new(1,1,1); Name.Visible = false
+    local HPText = Drawing.new("Text"); HPText.Size = 13; HPText.Center = true; HPText.Outline = true; HPText.Color = Color3.fromRGB(0, 255, 0); HPText.Visible = false
+    
+    local SkeletonLines = {}
+    for i = 1, 14 do local l = Drawing.new("Line"); l.Thickness = 1; l.Color = Color3.new(1,1,1); l.Visible = false; table.insert(SkeletonLines, l) end
+
+    local conn = RunService.RenderStepped:Connect(function()
+        if getgenv().ESP_Enabled and p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") then
+            local char = p.Character
+            local hum = char:FindFirstChild("Humanoid")
+            local Pos, OnScreen = Camera:WorldToViewportPoint(char.HumanoidRootPart.Position)
+            
+            if OnScreen and hum.Health > 0 then
+                local SizeY = (Camera:WorldToViewportPoint(char.HumanoidRootPart.Position - Vector3.new(0, 3, 0)).Y - Camera:WorldToViewportPoint(char.HumanoidRootPart.Position + Vector3.new(0, 2.6, 0)).Y)
+                local SizeX = SizeY / 1.8 
+                Box.Size = Vector2.new(SizeX, SizeY); Box.Position = Vector2.new(Pos.X - SizeX / 2, Pos.Y - SizeY / 2); Box.Visible = true
+                Name.Text = p.Name; Name.Position = Vector2.new(Pos.X, Pos.Y - SizeY / 2 - 30); Name.Visible = true
+                HPText.Text = "HP: " .. math.floor(hum.Health); HPText.Position = Vector2.new(Pos.X, Pos.Y - SizeY / 2 - 15); HPText.Visible = true
+
+                local isR15 = char:FindFirstChild("UpperTorso") ~= nil
+                local Bones = isR15 and R15_Bones or R6_Bones
+
+                for i, l in ipairs(SkeletonLines) do
+                    if Bones[i] then
+                        local p1, p2 = char:FindFirstChild(Bones[i][1]), char:FindFirstChild(Bones[i][2])
+                        if p1 and p2 then
+                            local pos1, vis1 = Camera:WorldToViewportPoint(p1.Position)
+                            local pos2, vis2 = Camera:WorldToViewportPoint(p2.Position)
+                            if vis1 or vis2 then l.From = Vector2.new(pos1.X, pos1.Y); l.To = Vector2.new(pos2.X, pos2.Y); l.Visible = true
+                            else l.Visible = false end
+                        else l.Visible = false end
+                    else l.Visible = false end
+                end
+            else
+                Box.Visible = false; Name.Visible = false; HPText.Visible = false
+                for _, l in ipairs(SkeletonLines) do l.Visible = false end
+            end
+        else
+            Box.Visible = false; Name.Visible = false; HPText.Visible = false
+            for _, l in ipairs(SkeletonLines) do l.Visible = false end
+        end
+    end)
+    table.insert(getgenv().SkyWhyCheat_Connections, conn)
+end
+for _, p in pairs(Players:GetPlayers()) do if p ~= LocalPlayer then CreateESP(p) end end
+table.insert(getgenv().SkyWhyCheat_Connections, Players.PlayerAdded:Connect(CreateESP))
+
+-- === 3. MAIN LOOP ===
+local tick_tb = tick()
+table.insert(getgenv().SkyWhyCheat_Connections, RunService.RenderStepped:Connect(function()
+    FOVCircle.Position = UserInputService:GetMouseLocation()
+    
+    if getgenv().Speed_Enabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.WalkSpeed = getgenv().WalkSpeed_Value
+    end
+
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
+        local head = LocalPlayer.Character.Head
+        local face = head:FindFirstChild("face") or head:FindFirstChild("Face")
+        if getgenv().Headless_Enabled then
+            head.Transparency = 1; if face then face.Transparency = 1 end
+        else
+            head.Transparency = 0; if face then face.Transparency = 0 end
+        end
+    end
+
+    if getgenv().TriggerBot_Enabled and Mouse.Target and Mouse.Target.Parent then
+        if Mouse.Target.Parent:FindFirstChild("Humanoid") and Mouse.Target.Parent.Name ~= LocalPlayer.Name then
+            if tick() - tick_tb > 0.1 then mouse1click(); tick_tb = tick() end
+        end
+    end
+
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = v.Character.HumanoidRootPart
+            if getgenv().HBE_Enabled then
+                hrp.Size = Vector3.new(getgenv().HBE_Size, getgenv().HBE_Size, getgenv().HBE_Size)
+                hrp.Transparency = 0.7; hrp.CanCollide = false 
+            else
+                hrp.Size = Vector3.new(2, 2, 1); hrp.Transparency = 1
+            end
+        end
+    end
+
+    if getgenv().Aimbot_Enabled and UserInputService:IsKeyDown(Enum.KeyCode.Eight) then
+        local targetPart = nil; local minDist = AimSettings.FOV
+        for _, v in pairs(Players:GetPlayers()) do
+            if v ~= LocalPlayer and v.Character then
+                local aimPart = v.Character:FindFirstChild("Torso") or v.Character:FindFirstChild("UpperTorso")
+                if aimPart then
+                    local pPos, pVis = Camera:WorldToViewportPoint(aimPart.Position)
+                    local mag = (Vector2.new(pPos.X, pPos.Y) - UserInputService:GetMouseLocation()).Magnitude
+                    if pVis and mag < minDist then minDist = mag; targetPart = aimPart end
+                end
+            end
+        end
+        if targetPart then
+            local pPos = Camera:WorldToViewportPoint(targetPart.Position)
+            mousemoverel((pPos.X - UserInputService:GetMouseLocation().X), (pPos.Y - UserInputService:GetMouseLocation().Y))
+        end
+    end
+end))
+
+-- Noclip, Inf Jump, Click TP
+table.insert(getgenv().SkyWhyCheat_Connections, RunService.Stepped:Connect(function()
+    if getgenv().Noclip_Enabled and LocalPlayer.Character then
+        for _, v in pairs(LocalPlayer.Character:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = false end end
+    end
+end))
+table.insert(getgenv().SkyWhyCheat_Connections, UserInputService.JumpRequest:Connect(function()
+    if getgenv().InfJump_Enabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end))
+table.insert(getgenv().SkyWhyCheat_Connections, UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Enum.KeyCode.T and getgenv().ClickTP_Enabled and Mouse.Target then
+        LocalPlayer.Character:MoveTo(Mouse.Hit.p)
+    end
+end))
+
+-- UI Draggable
+local d, ds, sp
+Aura.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then d = true; ds = i.Position; sp = Aura.Position end end)
+UserInputService.InputChanged:Connect(function(i) if d and i.UserInputType == Enum.UserInputType.MouseMovement then
+    local delta = i.Position - ds
+    Aura.Position = UDim2.new(sp.X.Scale, sp.X.Offset + delta.X, sp.Y.Scale, sp.Y.Offset + delta.Y)
+end end)
+Aura.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then d = false end end)
+
+print("SKYWHYCHEAT v5.2 LOADED (GLOW + MOTION BLUR + GRADIENTS)")
